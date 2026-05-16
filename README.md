@@ -54,11 +54,11 @@ javail --json
 
 列含义：
 
-- `GPU`: 空闲 GPU / 总 GPU。
-- `GPU TYPE`: 按 GPU 类型显示空闲量和总量。
 - `CPU`: 空闲 CPU / 总 CPU。
+- `GPU`: 按 GPU 类型显示空闲量和总量，例如 `h200 3/4`。
 - `MEM`: Slurm 视角下未分配内存 / 总内存。
-- `OSFREE`: 节点上报的操作系统空闲内存，仅供参考。
+
+`--json` 中仍保留 `mem_free_os_mb`，它来自 `scontrol show node` 的 `FreeMem` 字段，是节点操作系统当前空闲内存，适合诊断实时内存压力；日常判断可调度资源主要看表格里的 `MEM`。
 
 ### jnodes
 
