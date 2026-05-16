@@ -29,7 +29,7 @@ uvx --from . jqueue --help
 
 ### jqueue
 
-显示当前用户的 job，包含 job id、名称、状态、partition、节点或 pending 原因、GPU、CPU、内存、运行时间、time limit 和预计开始时间。
+显示当前用户的 job，包含 job id、名称、状态、partition、`WHERE`、GPU、CPU、内存、运行时间、time limit 和预计开始时间。`WHERE` 对运行中的 job 显示节点，对 pending job 显示等待原因。
 
 ```bash
 jqueue
@@ -118,5 +118,7 @@ jslurm hist
 - 所有命令默认只读，不会修改或取消作业。
 - `--json` 可用于脚本和 `jq`。
 - `--watch SEC` 会每隔指定秒数刷新一次。
+- 终端表格默认使用颜色；通过管道输出时会自动关闭，也可以手动加 `--no-color`。
+- 表格里的 start time 省略年份，例如 `05-16 14:32`；`--json` 仍保留 Slurm 原始时间。
 - `jqueue` 的 GPU 列来自 `squeue -O tres-alloc`，运行中显示已分配 TRES，等待中显示请求 TRES。
 - `javail` 的 GPU 数量主要来自 `scontrol show node -o` 中的 `CfgTRES` 和 `AllocTRES`；如果 GPU 分配信息缺失，会退回解析 `Gres` 和 `GresUsed`。

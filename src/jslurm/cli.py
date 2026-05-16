@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 import time
 from collections import defaultdict
@@ -31,6 +32,8 @@ from .slurm import (
     sinfo_partitions,
     squeue_jobs,
 )
+
+ISO_DATE_RE = re.compile(r"^\d{4}-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2}))?")
 
 
 def positive_int(value: str) -> int:
@@ -84,21 +87,51 @@ def job_gpu_summary(tres_or_gres: str) -> str:
     return "-"
 
 
+def format_start_time(value: str) -> str:
+    if not value or value in {"-", "N/A", "Unknown", "INVALID"}:
+        return "-"
+    match = ISO_DATE_RE.match(value)
+    if not match:
+        return value
+    month, day, hour, minute = match.groups()
+    if hour and minute:
+        return f"{month}-{day} {hour}:{minute}"
+    return f"{month}-{day}"
+
+
+def color_ratio_value(value: str, free: int | None, total: int | None, enabled: bool) -> str:
+    if free is None or total is None or total <= 0:
+        return colorize(value, "gray", enabled)
+    if free <= 0:
+        return colorize(value, "red", enabled)
+    if free < total:
+        return colorize(value, "yellow", enabled)
+    return colorize(value, "green", enabled)
+
+
+def color_resource_value(value: str, enabled: bool) -> str:
+    if not value or value == "-":
+        return colorize("-", "gray", enabled)
+    return colorize(value, "cyan", enabled)
+
+
 def job_to_row(job: Job, *, color: bool, long: bool) -> dict[str, str]:
     state = colorize(job.state, color_for_state(job.state), color)
+    gpu = job_gpu_summary(job.gres)
+    is_pending = job.state.upper().startswith(("PENDING", "PD"))
     row = {
-        "job_id": job.job_id,
+        "job_id": colorize(job.job_id, "bold", color),
         "name": job.name,
         "state": state,
-        "partition": job.partition,
-        "location": job.location,
-        "gpu": job_gpu_summary(job.gres),
-        "cpus": job.cpus,
-        "memory": job.memory,
+        "partition": colorize(job.partition, "cyan", color),
+        "location": colorize(job.location, "yellow" if is_pending else "blue", color),
+        "gpu": color_resource_value(gpu, color),
+        "cpus": color_resource_value(job.cpus, color),
+        "memory": color_resource_value(job.memory, color),
         "nodes": job.nodes,
         "elapsed": job.elapsed,
         "limit": job.time_limit,
-        "start": job.start_time,
+        "start": colorize(format_start_time(job.start_time), "gray" if is_pending else None, color),
     }
     if long:
         row.update({"submit": job.submit_time, "user": job.user, "priority": job.priority})
@@ -141,13 +174,13 @@ def command_queue(args: argparse.Namespace) -> int:
             Column("state", "STATE", min_width=7, max_width=13),
             Column("partition", "PART", min_width=5, max_width=12),
             Column("nodes", "N", min_width=1, max_width=4, align="right"),
-            Column("location", "NODE/REASON", min_width=10, max_width=34),
+            Column("location", "WHERE", min_width=5, max_width=28),
             Column("gpu", "GPU", min_width=3, max_width=20),
             Column("cpus", "CPU", min_width=3, max_width=5, align="right"),
             Column("memory", "MEM", min_width=3, max_width=8, align="right"),
             Column("elapsed", "TIME", min_width=4, max_width=12, align="right"),
             Column("limit", "LIMIT", min_width=5, max_width=12, align="right"),
-            Column("start", "START", min_width=5, max_width=19),
+            Column("start", "START", min_width=5, max_width=11),
         ]
         if args.long:
             columns.extend(
@@ -162,15 +195,18 @@ def command_queue(args: argparse.Namespace) -> int:
     return run_watch(args, render_once)
 
 
-def node_gpu_type_summary(node: Node) -> str:
+def node_gpu_type_summary(node: Node, *, color: bool) -> str:
     typed = node.gpu_types
     if typed:
-        return ", ".join(f"{name} {free}/{total}" for name, (free, total) in sorted(typed.items()))
+        return ", ".join(
+            f"{colorize(name, 'cyan', color)} {color_ratio_value(f'{free}/{total}', free, total, color)}"
+            for name, (free, total) in sorted(typed.items())
+        )
     total = node.gpu_total
     free = node.gpu_free
     if total is None:
-        return "-"
-    return f"gpu {format_ratio(free, total)}"
+        return colorize("-", "gray", color)
+    return f"{colorize('gpu', 'cyan', color)} {color_ratio_value(format_ratio(free, total), free, total, color)}"
 
 
 def node_to_dict(node: Node) -> dict[str, Any]:
@@ -194,16 +230,17 @@ def node_to_dict(node: Node) -> dict[str, Any]:
 
 def node_to_row(node: Node, *, color: bool) -> dict[str, str]:
     state = colorize(node.state, color_for_state(node.state), color)
+    mem_text = f"{format_mb(node.mem_free_sched_mb)}/{format_mb(node.mem_total_mb)}"
     return {
-        "name": node.name,
-        "partition": ",".join(node.partitions) or "-",
-        "gpu": format_ratio(node.gpu_free, node.gpu_total),
-        "gpu_type": node_gpu_type_summary(node),
-        "cpu": format_ratio(node.cpus_free, node.cpus_total),
-        "mem": f"{format_mb(node.mem_free_sched_mb)}/{format_mb(node.mem_total_mb)}",
-        "free_mem": format_mb(node.mem_free_os_mb),
+        "name": colorize(node.name, "bold", color),
+        "partition": colorize(",".join(node.partitions) or "-", "cyan", color),
+        "gpu": color_ratio_value(format_ratio(node.gpu_free, node.gpu_total), node.gpu_free, node.gpu_total, color),
+        "gpu_type": node_gpu_type_summary(node, color=color),
+        "cpu": color_ratio_value(format_ratio(node.cpus_free, node.cpus_total), node.cpus_free, node.cpus_total, color),
+        "mem": color_ratio_value(mem_text, node.mem_free_sched_mb, node.mem_total_mb, color),
+        "free_mem": colorize(format_mb(node.mem_free_os_mb), "blue", color),
         "state": state,
-        "features": node.features,
+        "features": colorize(node.features, "blue", color),
     }
 
 
@@ -345,14 +382,15 @@ def command_partitions(args: argparse.Namespace) -> int:
         color = should_color(args.no_color)
         table_rows = []
         for row in rows:
+            available_color = "green" if row.available.lower().startswith("up") else "red"
             table_rows.append(
                 {
-                    "partition": row.partition,
-                    "available": row.available,
+                    "partition": colorize(row.partition, "cyan", color),
+                    "available": colorize(row.available, available_color, color),
                     "limit": row.time_limit,
                     "nodes": row.nodes,
                     "state": colorize(row.state, color_for_state(row.state), color),
-                    "gres": row.gres,
+                    "gres": color_resource_value(row.gres, color),
                     "nodelist": row.nodelist,
                 }
             )
@@ -401,16 +439,17 @@ def command_why(args: argparse.Namespace) -> int:
             who = "所有用户" if args.all else args.user
             print(f"没有找到 {who} 的 pending 作业。")
             return
+        color = should_color(args.no_color)
         rows = []
         for item in data:
             starts = [start for start in item["starts"] if start and start != "N/A"]
             rows.append(
                 {
-                    "reason": item["reason"],
-                    "count": item["count"],
-                    "jobs": join_short(item["jobs"], 5),
+                    "reason": colorize(item["reason"], "yellow", color),
+                    "count": colorize(str(item["count"]), "bold", color),
+                    "jobs": colorize(join_short(item["jobs"], 5), "cyan", color),
                     "examples": join_short(item["examples"], 3),
-                    "start": min(starts) if starts else "-",
+                    "start": colorize(format_start_time(min(starts)) if starts else "-", "gray", color),
                 }
             )
         print_table(
@@ -420,7 +459,7 @@ def command_why(args: argparse.Namespace) -> int:
                 Column("count", "COUNT", min_width=5, max_width=6, align="right"),
                 Column("jobs", "JOBS", min_width=6, max_width=32),
                 Column("examples", "EXAMPLES", min_width=8, max_width=32),
-                Column("start", "EARLIEST START", min_width=8, max_width=19),
+                Column("start", "FIRST START", min_width=8, max_width=11),
             ],
         )
 
@@ -435,15 +474,16 @@ def add_why_args(parser: argparse.ArgumentParser) -> None:
 
 
 def history_to_row(job: HistoryJob, *, color: bool) -> dict[str, str]:
+    exit_color = "green" if job.exit_code in {"0:0", "0"} else "red"
     return {
-        "job_id": job.job_id,
+        "job_id": colorize(job.job_id, "bold", color),
         "name": job.name,
-        "partition": job.partition,
+        "partition": colorize(job.partition, "cyan", color),
         "state": colorize(job.state, color_for_state(job.state), color),
         "elapsed": job.elapsed,
-        "cpus": job.cpus,
-        "tres": job.alloc_tres,
-        "exit": job.exit_code,
+        "cpus": color_resource_value(job.cpus, color),
+        "tres": color_resource_value(job.alloc_tres, color),
+        "exit": colorize(job.exit_code, exit_color, color),
     }
 
 

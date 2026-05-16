@@ -1,6 +1,6 @@
 import unittest
 
-from jslurm.cli import job_gpu_summary
+from jslurm.cli import format_start_time, job_gpu_summary
 from jslurm.slurm import gpu_type_free_total, gpu_total_from_gres, parse_nodes, parse_tres
 
 
@@ -64,6 +64,12 @@ class SlurmParsingTests(unittest.TestCase):
         self.assertEqual(job_gpu_summary("cpu=8,mem=64000M,gres/gpu:a100=2"), "a100=2")
         self.assertEqual(job_gpu_summary("cpu=4,gres/gpu=1"), "gpu=1")
         self.assertEqual(job_gpu_summary("cpu=4,mem=16000M"), "-")
+
+    def test_format_start_time_omits_year(self):
+        self.assertEqual(format_start_time("2026-05-16T14:32:09"), "05-16 14:32")
+        self.assertEqual(format_start_time("2026-05-16 14:32:09"), "05-16 14:32")
+        self.assertEqual(format_start_time("2026-05-16"), "05-16")
+        self.assertEqual(format_start_time("-"), "-")
 
 
 if __name__ == "__main__":

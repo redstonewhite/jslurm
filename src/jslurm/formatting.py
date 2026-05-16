@@ -50,17 +50,22 @@ def colorize(value: str, color: str | None, enabled: bool) -> str:
 
 
 def color_for_state(state: str) -> str | None:
-    upper = state.upper()
-    if upper.startswith(("RUNNING", "COMPLETING")):
-        return "green"
-    if upper.startswith(("PENDING", "CONFIGURING", "RESIZING")):
-        return "yellow"
-    if upper.startswith(("COMPLETED",)):
-        return "green"
-    if upper.startswith(("FAILED", "TIMEOUT", "NODE_FAIL", "OUT_OF_MEMORY", "BOOT_FAIL", "DEADLINE")):
+    upper = state.upper().replace("*", "")
+    if upper in {"F", "TO", "NF", "OOM", "BF"} or any(
+        marker in upper
+        for marker in ("FAILED", "FAIL", "TIMEOUT", "OUT_OF_MEMORY", "BOOT_FAIL", "DEADLINE", "DOWN")
+    ):
         return "red"
-    if upper.startswith(("CANCELLED", "PREEMPTED", "REVOKED")):
+    if upper in {"CA", "PR"} or any(marker in upper for marker in ("CANCELLED", "PREEMPTED", "REVOKED", "DRAIN", "MAINT")):
         return "magenta"
+    if upper == "R" or upper.startswith(("RUNNING", "COMPLETING", "ALLOC", "ALLOCATED")):
+        return "green"
+    if upper.startswith(("PD", "PENDING", "CONFIGURING", "RESIZING", "MIX", "MIXED")):
+        return "yellow"
+    if upper.startswith(("IDLE",)):
+        return "green"
+    if upper.startswith(("COMPLETED", "CD")):
+        return "green"
     return None
 
 
