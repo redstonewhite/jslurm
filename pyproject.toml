@@ -1,0 +1,27 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "jslurm"
+version = "0.1.0"
+description = "Small uv-installable CLI tools for inspecting Slurm jobs and GPU availability."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [
+  { name = "jslurm contributors" },
+]
+dependencies = []
+
+[project.scripts]
+jslurm = "jslurm.cli:main"
+jqueue = "jslurm.cli:main_queue"
+javail = "jslurm.cli:main_avail"
+jnodes = "jslurm.cli:main_nodes"
+jpart = "jslurm.cli:main_partitions"
+jwhy = "jslurm.cli:main_why"
+jhist = "jslurm.cli:main_history"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/jslurm"]
