@@ -1,13 +1,18 @@
 import unittest
+from unittest import mock
 
-from jslurm.cli import format_start_time, job_gpu_summary
+from jslurm.cli import filter_nodes, format_start_time, job_gpu_summary
+import jslurm.slurm as slurm
 from jslurm.slurm import (
+    DELIM,
+    Node,
     expand_nodelist,
     gpu_model_from_feature,
     gpu_type_free_total,
     gpu_total_from_gres,
     parse_nodes,
     parse_tres,
+    squeue_jobs,
 )
 
 
@@ -23,6 +28,86 @@ class SlurmParsingTests(unittest.TestCase):
                 "gres/gpu:a100": 4,
             },
         )
+
+    def test_squeue_jobs_parses_more_than_two_rows(self):
+        rows = [
+            [
+                "101",
+                "train-a",
+                "RUNNING",
+                "1:00",
+                "12:00:00",
+                "1",
+                "p001",
+                "general",
+                "cpu=8,mem=100G,gres/gpu=1",
+                "8",
+                "100G",
+                "2026-05-16T10:00:00",
+                "2026-05-16T09:00:00",
+                "alice",
+                "100",
+                "h200",
+            ],
+            [
+                "102",
+                "train-b",
+                "RUNNING",
+                "2:00",
+                "12:00:00",
+                "1",
+                "p002",
+                "general",
+                "cpu=8,mem=100G,gres/gpu=1",
+                "8",
+                "100G",
+                "2026-05-16T10:10:00",
+                "2026-05-16T09:10:00",
+                "alice",
+                "90",
+                "h200",
+            ],
+            [
+                "103",
+                "train-c",
+                "PENDING",
+                "0:00",
+                "12:00:00",
+                "1",
+                "Resources",
+                "general",
+                "cpu=8,mem=100G,gres/gpu=1",
+                "8",
+                "100G",
+                "2026-05-16T12:00:00",
+                "2026-05-16T09:20:00",
+                "alice",
+                "80",
+                "h200",
+            ],
+            [
+                "104",
+                "train-d",
+                "PENDING",
+                "0:00",
+                "12:00:00",
+                "1",
+                "Priority",
+                "general",
+                "cpu=8,mem=100G,gres/gpu=1",
+                "8",
+                "100G",
+                "2026-05-16T13:00:00",
+                "2026-05-16T09:30:00",
+                "alice",
+                "70",
+                "h200",
+            ],
+        ]
+        output = "\n".join(DELIM.join(row) for row in rows) + "\n"
+        with mock.patch.object(slurm, "run_slurm", return_value=output):
+            jobs = squeue_jobs(user="alice")
+        self.assertEqual([job.job_id for job in jobs], ["101", "102", "103", "104"])
 
     def test_gpu_total_from_gres(self):
         self.assertEqual(gpu_total_from_gres("gpu:a100:4(S:0-3)"), 4)
@@ -58,6 +143,42 @@ class SlurmParsingTests(unittest.TestCase):
         self.assertEqual(node.gpu_alloc, 2)
         self.assertEqual(node.gpu_free, 2)
         self.assertEqual(node.gpu_types, {"a100": (2, 4)})
+
+    def test_filter_nodes_can_hide_busy_gpu_nodes(self):
+        free_node = Node(
+            name="p001",
+            state="MIXED",
+            partitions=["general"],
+            cpus_total=64,
+            cpus_alloc=16,
+            mem_total_mb=755000,
+            mem_alloc_mb=100000,
+            mem_free_os_mb=20000,
+            gres="gpu:h200:4",
+            gres_used="-",
+            cfg_tres={"gres/gpu": 4, "gres/gpu:h200": 4},
+            alloc_tres={"gres/gpu": 1, "gres/gpu:h200": 1},
+            features="hopper,h200,141g",
+        )
+        busy_node = Node(
+            name="q001",
+            state="MIXED",
+            partitions=["general"],
+            cpus_total=64,
+            cpus_alloc=64,
+            mem_total_mb=755000,
+            mem_alloc_mb=700000,
+            mem_free_os_mb=1000,
+            gres="gpu:h200:4",
+            gres_used="-",
+            cfg_tres={"gres/gpu": 4, "gres/gpu:h200": 4},
+            alloc_tres={"gres/gpu": 4, "gres/gpu:h200": 4},
+            features="hopper,h200,141g",
+        )
+        all_nodes = filter_nodes([free_node, busy_node], gpu_only=True)
+        free_nodes = filter_nodes([free_node, busy_node], gpu_only=True, available_only=True)
+        self.assertEqual([node.name for node in all_nodes], ["p001", "q001"])
+        self.assertEqual([node.name for node in free_nodes], ["p001"])
 
     def test_gpu_type_free_total(self):
         typed = gpu_type_free_total(

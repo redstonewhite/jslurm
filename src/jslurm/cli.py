@@ -375,20 +375,37 @@ def command_avail(args: argparse.Namespace) -> int:
     states = split_csv(args.states)
 
     def render_once() -> None:
-        nodes = filter_nodes(
+        all_matching_gpu_nodes = filter_nodes(
             scontrol_nodes(),
             partition=args.partition,
             gpu_type=args.gpu_type,
             min_gpus=args.min_gpus,
-            available_only=not args.all,
+            available_only=False,
             gpu_only=True,
             states=states,
+        )
+        nodes = (
+            all_matching_gpu_nodes
+            if args.all
+            else filter_nodes(
+                all_matching_gpu_nodes,
+                gpu_type=args.gpu_type,
+                min_gpus=args.min_gpus,
+                available_only=True,
+                gpu_only=True,
+            )
         )
         if args.json:
             print_json([node_to_dict(node) for node in nodes])
             return
+        hidden = [node for node in all_matching_gpu_nodes if node not in nodes]
         if not nodes:
-            print("没有找到满足条件的立即可用 GPU 资源。")
+            print("没有找到满足条件的空闲 GPU 资源。")
+            if hidden:
+                print(
+                    f"隐藏了 {len(hidden)} 个 GPU 节点："
+                    f"{join_short([node.name for node in hidden], 8)}。用 `javail --all` 查看全部。"
+                )
             return
         color = should_color(args.no_color)
         rows = [node_to_row(node, color=color) for node in nodes]
@@ -406,6 +423,15 @@ def command_avail(args: argparse.Namespace) -> int:
                 Column("features", "FEATURES", min_width=5, max_width=26),
             ],
         )
+        if hidden:
+            print(
+                colorize(
+                    f"隐藏了 {len(hidden)} 个 GPU 节点："
+                    f"{join_short([node.name for node in hidden], 8)}。用 `javail --all` 查看全部。",
+                    "gray",
+                    color,
+                )
+            )
 
     return run_watch(args, render_once)
 
