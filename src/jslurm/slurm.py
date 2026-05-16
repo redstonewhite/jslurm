@@ -9,6 +9,17 @@ from dataclasses import dataclass
 from typing import Iterable
 
 DELIM = "\x1f"
+GPU_FEATURE_RE = re.compile(
+    r"^(?:"
+    r"gh[0-9]{1,4}[a-z0-9_+-]*|"
+    r"[ahvl][0-9]{1,4}[a-z0-9_+-]*|"
+    r"rtx[0-9]{4}[a-z0-9_+-]*|"
+    r"gtx[0-9]{4}[a-z0-9_+-]*|"
+    r"[0-9]{4}[a-z0-9_+-]*|"
+    r"mi[0-9]{2,4}[a-z0-9_+-]*"
+    r")$",
+    re.IGNORECASE,
+)
 
 
 class SlurmError(RuntimeError):
@@ -32,6 +43,8 @@ class Job:
     submit_time: str
     user: str
     priority: str
+    feature: str
+    sched_nodes: str = "-"
 
 
 @dataclass(frozen=True)
@@ -193,6 +206,7 @@ def squeue_jobs(
         "SubmitTime",
         "UserName",
         "PriorityLong",
+        "Feature",
     ]
     format_spec = ",".join(
         squeue_format_field(field, suffix=DELIM if idx < len(fields) - 1 else "")
@@ -262,6 +276,114 @@ def parse_tres(value: str | None) -> dict[str, int]:
         if parsed is not None:
             result[key] = parsed
     return result
+
+
+def feature_tokens(feature: str | None) -> list[str]:
+    if not feature or feature in {"-", "(null)", "N/A"}:
+        return []
+    return [
+        token.lower()
+        for token in re.split(r"[^A-Za-z0-9_+-]+", feature)
+        if token and token not in {"*", "null", "none"}
+    ]
+
+
+def gpu_model_from_feature(feature: str | None) -> str | None:
+    tokens = feature_tokens(feature)
+    matches = [token for token in tokens if GPU_FEATURE_RE.match(token)]
+    if len(matches) == 1:
+        return matches[0]
+    return None
+
+
+def gpu_model_from_node(node: Node) -> str | None:
+    typed = [gpu_type for gpu_type in node.gpu_types if gpu_type != "gpu"]
+    if len(typed) == 1:
+        return typed[0]
+    return gpu_model_from_feature(node.features)
+
+
+def split_hostlist(value: str) -> list[str]:
+    parts: list[str] = []
+    depth = 0
+    current: list[str] = []
+    for char in value:
+        if char == "[":
+            depth += 1
+        elif char == "]" and depth > 0:
+            depth -= 1
+        if char == "," and depth == 0:
+            part = "".join(current).strip()
+            if part:
+                parts.append(part)
+            current = []
+            continue
+        current.append(char)
+    part = "".join(current).strip()
+    if part:
+        parts.append(part)
+    return parts
+
+
+def expand_range_token(token: str) -> list[str]:
+    if "-" not in token:
+        return [token]
+    raw_range, _, raw_step = token.partition(":")
+    start, end = raw_range.split("-", 1)
+    if not start.isdigit() or not end.isdigit():
+        return [token]
+    step = parse_int(raw_step) if raw_step else 1
+    if step is None or step <= 0:
+        step = 1
+    width = max(len(start), len(end))
+    first = int(start)
+    last = int(end)
+    if first <= last:
+        return [str(value).zfill(width) for value in range(first, last + 1, step)]
+    return [str(value).zfill(width) for value in range(first, last - 1, -step)]
+
+
+def expand_host_component(component: str, limit: int) -> list[str]:
+    if "[" not in component:
+        return [component]
+    start = component.find("[")
+    depth = 0
+    end = -1
+    for idx, char in enumerate(component[start:], start=start):
+        if char == "[":
+            depth += 1
+        elif char == "]":
+            depth -= 1
+            if depth == 0:
+                end = idx
+                break
+    if end < 0:
+        return [component]
+    prefix = component[:start]
+    body = component[start + 1 : end]
+    suffix = component[end + 1 :]
+    expanded: list[str] = []
+    for token in split_hostlist(body):
+        for value in expand_range_token(token):
+            for tail in expand_host_component(suffix, limit):
+                expanded.append(prefix + value + tail)
+                if len(expanded) >= limit:
+                    return expanded
+    return expanded
+
+
+def expand_nodelist(nodelist: str | None, limit: int = 512) -> list[str]:
+    if not nodelist or nodelist in {"-", "(null)", "N/A"}:
+        return []
+    if nodelist.startswith("(") and nodelist.endswith(")"):
+        return []
+    nodes: list[str] = []
+    for component in split_hostlist(nodelist):
+        for node in expand_host_component(component, max(1, limit - len(nodes))):
+            nodes.append(node)
+            if len(nodes) >= limit:
+                return nodes
+    return nodes
 
 
 def parse_nodes(output: str) -> list[Node]:

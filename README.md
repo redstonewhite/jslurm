@@ -120,5 +120,5 @@ jslurm hist
 - `--watch SEC` 会每隔指定秒数刷新一次。
 - 终端表格默认使用颜色；通过管道输出时会自动关闭，也可以手动加 `--no-color`。
 - 表格里的 start time 省略年份，例如 `05-16 14:32`；`--json` 仍保留 Slurm 原始时间。
-- `jqueue` 的 GPU 列来自 `squeue -O tres-alloc`，运行中显示已分配 TRES，等待中显示请求 TRES。
+- `jqueue` 的 GPU 列来自 `squeue -O tres-alloc`，运行中显示已分配 TRES，等待中显示请求 TRES；如果集群只返回 `gres/gpu=1`，会先尝试从 job feature 识别型号，例如 `h200=1`。运行中的 job 如果 feature 里没有明确型号，会按需加载一次节点信息，从分配节点的 `Gres/CfgTRES/ActiveFeatures` 继续反推。
 - `javail` 的 GPU 数量主要来自 `scontrol show node -o` 中的 `CfgTRES` 和 `AllocTRES`；如果 GPU 分配信息缺失，会退回解析 `Gres` 和 `GresUsed`。

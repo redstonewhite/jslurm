@@ -27,6 +27,9 @@ from .slurm import (
     Node,
     SlurmError,
     current_user,
+    expand_nodelist,
+    gpu_model_from_feature,
+    gpu_model_from_node,
     sacct_history,
     scontrol_nodes,
     sinfo_partitions,
@@ -66,7 +69,9 @@ def run_watch(args: argparse.Namespace, render: Callable[[], None]) -> int:
         return 130
 
 
-def job_gpu_summary(tres_or_gres: str) -> str:
+def job_gpu_summary(
+    tres_or_gres: str, feature: str | None = None, node_models: Iterable[str] | None = None
+) -> str:
     if not tres_or_gres or tres_or_gres == "-":
         return "-"
     typed: list[str] = []
@@ -81,10 +86,78 @@ def job_gpu_summary(tres_or_gres: str) -> str:
     if typed:
         return ",".join(typed)
     if generic is not None:
+        model = gpu_model_from_feature(feature)
+        models = sorted({item for item in node_models or [] if item})
+        if model is None and len(models) == 1:
+            model = models[0]
+        if model:
+            return f"{model}={generic}"
+        if models:
+            shown = "/".join(models[:2])
+            suffix = f"+{len(models) - 2}" if len(models) > 2 else ""
+            return f"gpu={generic}({shown}{suffix})"
         return f"gpu={generic}"
     if tres_or_gres.startswith("gpu"):
         return tres_or_gres
     return "-"
+
+
+def job_has_generic_gpu(tres_or_gres: str) -> bool:
+    if not tres_or_gres or tres_or_gres == "-":
+        return False
+    has_generic = False
+    for item in tres_or_gres.split(","):
+        item = item.strip()
+        if item.startswith("gres/gpu:") and "=" in item:
+            return False
+        if item.startswith("gres/gpu="):
+            has_generic = True
+    return has_generic
+
+
+def job_is_pending(job: Job) -> bool:
+    return job.state.upper().startswith(("PENDING", "PD"))
+
+
+def job_candidate_nodes(job: Job) -> list[str]:
+    candidates: list[str] = []
+    candidates.extend(expand_nodelist(job.sched_nodes))
+    if not job_is_pending(job):
+        candidates.extend(expand_nodelist(job.location))
+    seen: set[str] = set()
+    return [node for node in candidates if not (node in seen or seen.add(node))]
+
+
+def job_needs_node_gpu_lookup(job: Job) -> bool:
+    if not job_has_generic_gpu(job.gres):
+        return False
+    if gpu_model_from_feature(job.feature):
+        return False
+    return bool(job_candidate_nodes(job))
+
+
+def load_node_models_for_jobs(jobs: Iterable[Job]) -> dict[str, list[str]]:
+    jobs_to_enrich = [job for job in jobs if job_needs_node_gpu_lookup(job)]
+    if not jobs_to_enrich:
+        return {}
+    try:
+        nodes = {node.name: node for node in scontrol_nodes()}
+    except SlurmError:
+        return {}
+
+    result: dict[str, list[str]] = {}
+    for job in jobs_to_enrich:
+        models: list[str] = []
+        for node_name in job_candidate_nodes(job):
+            node = nodes.get(node_name)
+            if not node:
+                continue
+            model = gpu_model_from_node(node)
+            if model:
+                models.append(model)
+        if models:
+            result[job.job_id] = models
+    return result
 
 
 def format_start_time(value: str) -> str:
@@ -115,9 +188,11 @@ def color_resource_value(value: str, enabled: bool) -> str:
     return colorize(value, "cyan", enabled)
 
 
-def job_to_row(job: Job, *, color: bool, long: bool) -> dict[str, str]:
+def job_to_row(
+    job: Job, *, color: bool, long: bool, node_models: Iterable[str] | None = None
+) -> dict[str, str]:
     state = colorize(job.state, color_for_state(job.state), color)
-    gpu = job_gpu_summary(job.gres)
+    gpu = job_gpu_summary(job.gres, job.feature, node_models)
     is_pending = job.state.upper().startswith(("PENDING", "PD"))
     row = {
         "job_id": colorize(job.job_id, "bold", color),
@@ -163,7 +238,11 @@ def command_queue(args: argparse.Namespace) -> int:
             print_json([asdict(job) for job in jobs])
             return
         color = should_color(args.no_color)
-        rows = [job_to_row(job, color=color, long=args.long) for job in jobs]
+        node_models = load_node_models_for_jobs(jobs)
+        rows = [
+            job_to_row(job, color=color, long=args.long, node_models=node_models.get(job.job_id))
+            for job in jobs
+        ]
         if not rows:
             who = "所有用户" if args.all else args.user
             print(f"没有找到 {who} 的 Slurm 作业。")
