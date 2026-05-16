@@ -47,9 +47,9 @@ def positive_int(value: str) -> int:
 
 
 def add_common_output_flags(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--json", action="store_true", help="输出 JSON，便于 jq/脚本继续处理。")
-    parser.add_argument("--no-color", action="store_true", help="禁用 ANSI 颜色。")
-    parser.add_argument("--watch", type=positive_int, metavar="SEC", help="每 SEC 秒刷新一次。")
+    parser.add_argument("--json", action="store_true", help="Output JSON for jq or scripts.")
+    parser.add_argument("--no-color", action="store_true", help="Disable ANSI colors.")
+    parser.add_argument("--watch", type=positive_int, metavar="SEC", help="Refresh every SEC seconds.")
 
 
 def print_json(data: Any) -> None:
@@ -214,15 +214,15 @@ def job_to_row(
 
 
 def add_queue_args(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("-u", "--user", default=current_user(), help="查询指定用户，默认当前用户。")
-    parser.add_argument("-a", "--all", action="store_true", help="显示所有用户的作业。")
-    parser.add_argument("-p", "--partition", help="只显示指定 partition。")
+    parser.add_argument("-u", "--user", default=current_user(), help="Query this user. Defaults to the current user.")
+    parser.add_argument("-a", "--all", action="store_true", help="Show jobs from all users.")
+    parser.add_argument("-p", "--partition", help="Only show jobs in this partition.")
     parser.add_argument(
         "-t",
         "--states",
-        help="Slurm 状态过滤，例如 R,PD 或 RUNNING,PENDING。",
+        help="Filter Slurm states, for example R,PD or RUNNING,PENDING.",
     )
-    parser.add_argument("-l", "--long", action="store_true", help="显示提交时间、用户和优先级。")
+    parser.add_argument("-l", "--long", action="store_true", help="Show submit time, user, and priority.")
     add_common_output_flags(parser)
 
 
@@ -244,8 +244,8 @@ def command_queue(args: argparse.Namespace) -> int:
             for job in jobs
         ]
         if not rows:
-            who = "所有用户" if args.all else args.user
-            print(f"没有找到 {who} 的 Slurm 作业。")
+            who = "all users" if args.all else args.user
+            print(f"No Slurm jobs found for {who}.")
             return
         columns = [
             Column("job_id", "JOBID", min_width=6, max_width=14),
@@ -356,17 +356,17 @@ def filter_nodes(
 
 
 def add_node_filter_args(parser: argparse.ArgumentParser, *, include_avail_defaults: bool = False) -> None:
-    parser.add_argument("-p", "--partition", help="只显示指定 partition 的节点。")
-    parser.add_argument("-g", "--gpu-type", help="只显示包含指定 GPU 类型的节点，例如 a100。")
-    parser.add_argument("--min-gpus", type=int, default=1, help="可用 GPU 数量下限，默认 1。")
+    parser.add_argument("-p", "--partition", help="Only show nodes in this partition.")
+    parser.add_argument("-g", "--gpu-type", help="Only show nodes with this GPU type, for example a100.")
+    parser.add_argument("--min-gpus", type=int, default=1, help="Minimum free GPU count. Defaults to 1.")
     parser.add_argument(
         "--states",
-        help="状态过滤，例如 IDLE,MIXED,DRAIN。",
+        help="Filter node states, for example IDLE,MIXED,DRAIN.",
     )
     if include_avail_defaults:
-        parser.add_argument("--all", action="store_true", help="显示所有 GPU 节点，而不只显示立即可用节点。")
+        parser.add_argument("--all", action="store_true", help="Show all GPU nodes, not only currently available nodes.")
     else:
-        parser.add_argument("--available", action="store_true", help="只显示当前可调度且有空闲 GPU 的节点。")
+        parser.add_argument("--available", action="store_true", help="Only show schedulable nodes with free GPUs.")
     add_common_output_flags(parser)
 
 
@@ -399,11 +399,11 @@ def command_avail(args: argparse.Namespace) -> int:
             return
         hidden = [node for node in all_matching_gpu_nodes if node not in nodes]
         if not nodes:
-            print("没有找到满足条件的空闲 GPU 资源。")
+            print("No free GPU resources match the filters.")
             if hidden:
                 print(
-                    f"隐藏了 {len(hidden)} 个 GPU 节点："
-                    f"{join_short([node.name for node in hidden], 8)}。用 `javail --all` 查看全部。"
+                    f"Hidden GPU nodes: {len(hidden)} "
+                    f"({join_short([node.name for node in hidden], 8)}). Use `javail --all` to show all."
                 )
             return
         color = should_color(args.no_color)
@@ -423,8 +423,8 @@ def command_avail(args: argparse.Namespace) -> int:
         if hidden:
             print(
                 colorize(
-                    f"隐藏了 {len(hidden)} 个 GPU 节点："
-                    f"{join_short([node.name for node in hidden], 8)}。用 `javail --all` 查看全部。",
+                    f"Hidden GPU nodes: {len(hidden)} "
+                    f"({join_short([node.name for node in hidden], 8)}). Use `javail --all` to show all.",
                     "gray",
                     color,
                 )
@@ -450,7 +450,7 @@ def command_nodes(args: argparse.Namespace) -> int:
             print_json([node_to_dict(node) for node in nodes])
             return
         if not nodes:
-            print("没有找到满足条件的节点。")
+            print("No nodes match the filters.")
             return
         color = should_color(args.no_color)
         rows = [node_to_row(node, color=color) for node in nodes]
@@ -477,7 +477,7 @@ def command_partitions(args: argparse.Namespace) -> int:
             print_json([asdict(row) for row in rows])
             return
         if not rows:
-            print("没有找到 partition 信息。")
+            print("No partition information found.")
             return
         color = should_color(args.no_color)
         table_rows = []
@@ -536,8 +536,8 @@ def command_why(args: argparse.Namespace) -> int:
             print_json(data)
             return
         if not data:
-            who = "所有用户" if args.all else args.user
-            print(f"没有找到 {who} 的 pending 作业。")
+            who = "all users" if args.all else args.user
+            print(f"No pending jobs found for {who}.")
             return
         color = should_color(args.no_color)
         rows = []
@@ -567,9 +567,9 @@ def command_why(args: argparse.Namespace) -> int:
 
 
 def add_why_args(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("-u", "--user", default=current_user(), help="查询指定用户，默认当前用户。")
-    parser.add_argument("-a", "--all", action="store_true", help="显示所有用户 pending 作业的原因。")
-    parser.add_argument("-p", "--partition", help="只显示指定 partition。")
+    parser.add_argument("-u", "--user", default=current_user(), help="Query this user. Defaults to the current user.")
+    parser.add_argument("-a", "--all", action="store_true", help="Show pending reasons for all users.")
+    parser.add_argument("-p", "--partition", help="Only show jobs in this partition.")
     add_common_output_flags(parser)
 
 
@@ -594,7 +594,7 @@ def command_history(args: argparse.Namespace) -> int:
             print_json([asdict(row) for row in rows])
             return
         if not rows:
-            print("没有找到近期 sacct 记录。")
+            print("No recent sacct records found.")
             return
         color = should_color(args.no_color)
         table_rows = [history_to_row(row, color=color) for row in rows]
@@ -616,8 +616,8 @@ def command_history(args: argparse.Namespace) -> int:
 
 
 def add_history_args(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("-u", "--user", default=current_user(), help="查询指定用户，默认当前用户。")
-    parser.add_argument("--days", type=positive_int, default=7, help="查询最近 N 天，默认 7。")
+    parser.add_argument("-u", "--user", default=current_user(), help="Query this user. Defaults to the current user.")
+    parser.add_argument("--days", type=positive_int, default=7, help="Query the last N days. Defaults to 7.")
     add_common_output_flags(parser)
 
 
@@ -626,28 +626,28 @@ def build_parser(prog: str = "jslurm") -> argparse.ArgumentParser:
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    queue = subparsers.add_parser("queue", aliases=["q"], help="显示当前用户或指定用户的作业。")
+    queue = subparsers.add_parser("queue", aliases=["q"], help="Show jobs for the current or selected user.")
     add_queue_args(queue)
     queue.set_defaults(func=command_queue)
 
-    avail = subparsers.add_parser("avail", aliases=["a"], help="显示立即可用的 GPU 节点资源。")
+    avail = subparsers.add_parser("avail", aliases=["a"], help="Show currently available GPU node resources.")
     add_node_filter_args(avail, include_avail_defaults=True)
     avail.set_defaults(func=command_avail)
 
-    nodes = subparsers.add_parser("nodes", aliases=["n"], help="显示节点资源概览。")
+    nodes = subparsers.add_parser("nodes", aliases=["n"], help="Show a node resource overview.")
     add_node_filter_args(nodes)
     nodes.set_defaults(func=command_nodes)
 
-    partitions = subparsers.add_parser("part", aliases=["p"], help="显示 partition/sinfo 概览。")
-    partitions.add_argument("-p", "--partition", help="只显示指定 partition。")
+    partitions = subparsers.add_parser("part", aliases=["p"], help="Show a partition/sinfo overview.")
+    partitions.add_argument("-p", "--partition", help="Only show this partition.")
     add_common_output_flags(partitions)
     partitions.set_defaults(func=command_partitions)
 
-    why = subparsers.add_parser("why", aliases=["w"], help="汇总 pending 作业原因。")
+    why = subparsers.add_parser("why", aliases=["w"], help="Summarize pending job reasons.")
     add_why_args(why)
     why.set_defaults(func=command_why)
 
-    history = subparsers.add_parser("hist", aliases=["h"], help="显示近期 sacct 历史。")
+    history = subparsers.add_parser("hist", aliases=["h"], help="Show recent sacct history.")
     add_history_args(history)
     history.set_defaults(func=command_history)
 
@@ -669,43 +669,43 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def main_queue(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="jqueue", description="显示 Slurm 作业队列。")
+    parser = argparse.ArgumentParser(prog="jqueue", description="Show the Slurm job queue.")
     add_queue_args(parser)
     args = parser.parse_args(argv)
     return run_with_errors(command_queue, args)
 
 
 def main_avail(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="javail", description="显示立即可用的 GPU 资源。")
+    parser = argparse.ArgumentParser(prog="javail", description="Show currently available GPU resources.")
     add_node_filter_args(parser, include_avail_defaults=True)
     args = parser.parse_args(argv)
     return run_with_errors(command_avail, args)
 
 
 def main_nodes(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="jnodes", description="显示 Slurm 节点资源概览。")
+    parser = argparse.ArgumentParser(prog="jnodes", description="Show a Slurm node resource overview.")
     add_node_filter_args(parser)
     args = parser.parse_args(argv)
     return run_with_errors(command_nodes, args)
 
 
 def main_partitions(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="jpart", description="显示 Slurm partition 概览。")
-    parser.add_argument("-p", "--partition", help="只显示指定 partition。")
+    parser = argparse.ArgumentParser(prog="jpart", description="Show a Slurm partition overview.")
+    parser.add_argument("-p", "--partition", help="Only show this partition.")
     add_common_output_flags(parser)
     args = parser.parse_args(argv)
     return run_with_errors(command_partitions, args)
 
 
 def main_why(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="jwhy", description="汇总 Slurm pending 作业原因。")
+    parser = argparse.ArgumentParser(prog="jwhy", description="Summarize Slurm pending job reasons.")
     add_why_args(parser)
     args = parser.parse_args(argv)
     return run_with_errors(command_why, args)
 
 
 def main_history(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="jhist", description="显示近期 Slurm accounting 历史。")
+    parser = argparse.ArgumentParser(prog="jhist", description="Show recent Slurm accounting history.")
     add_history_args(parser)
     args = parser.parse_args(argv)
     return run_with_errors(command_history, args)

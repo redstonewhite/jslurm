@@ -156,12 +156,12 @@ def run_slurm(args: list[str], timeout: int = 20) -> str:
             timeout=timeout,
         )
     except FileNotFoundError as exc:
-        raise SlurmError(f"找不到 `{args[0]}`，请确认 Slurm 命令在 PATH 中。") from exc
+        raise SlurmError(f"`{args[0]}` was not found. Make sure Slurm commands are in PATH.") from exc
     except subprocess.TimeoutExpired as exc:
-        raise SlurmError(f"`{' '.join(args)}` 执行超时。") from exc
+        raise SlurmError(f"`{' '.join(args)}` timed out.") from exc
     if proc.returncode != 0:
         message = proc.stderr.strip() or proc.stdout.strip() or f"exit code {proc.returncode}"
-        raise SlurmError(f"`{' '.join(args)}` 失败：{message}")
+        raise SlurmError(f"`{' '.join(args)}` failed: {message}")
     return proc.stdout
 
 

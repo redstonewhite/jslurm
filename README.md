@@ -1,35 +1,35 @@
 # jslurm
 
-`jslurm` 是一组可用 `uv tool install` 安装的 Slurm 查询工具，目标是把 `squeue`、`scontrol`、`sinfo`、`sacct` 的输出整理成更适合日常提交和排队判断的表格或 JSON。
+`jslurm` is a small set of `uv tool install`-friendly Slurm inspection commands. It turns `squeue`, `scontrol`, `sinfo`, and `sacct` output into compact tables or JSON for day-to-day job and GPU resource checks.
 
-要求：Python 3.10+，并且登录节点上可以直接调用 Slurm 命令。
+Requirements: Python 3.10+ and Slurm commands available on the login node.
 
-## 安装
+## Installation
 
-在本仓库目录运行：
+From this repository:
 
 ```bash
 uv tool install .
 ```
 
-开发时想覆盖已有安装：
+Force reinstall during development:
 
 ```bash
 uv tool install --force .
 ```
 
-也可以只在当前环境中试跑：
+Try commands without installing:
 
 ```bash
 uvx --from . jslurm --help
 uvx --from . jqueue --help
 ```
 
-## 命令
+## Commands
 
 ### jqueue
 
-显示当前用户的 job，包含 job id、名称、状态、partition、`WHERE`、GPU、CPU、内存、运行时间、time limit 和预计开始时间。`WHERE` 对运行中的 job 显示节点，对 pending job 显示等待原因。
+Show jobs for the current user, including job id, name, state, partition, `WHERE`, GPU, CPU, memory, elapsed time, time limit, and estimated start time. `WHERE` shows the allocated node for running jobs and the pending reason for waiting jobs.
 
 ```bash
 jqueue
@@ -42,7 +42,7 @@ jqueue --json
 
 ### javail
 
-显示当前立即可用的 GPU 节点资源。默认只显示有空闲 GPU 且节点状态可调度的 GPU 节点。
+Show currently available GPU node resources. By default it only shows GPU nodes with free GPUs and schedulable node states.
 
 ```bash
 javail
@@ -52,17 +52,17 @@ javail --all
 javail --json
 ```
 
-列含义：
+Columns:
 
-- `CPU`: 空闲 CPU / 总 CPU。
-- `GPU`: 按 GPU 类型显示空闲量和总量，例如 `h200 3/4`。
-- `MEM`: Slurm 视角下未分配内存 / 总内存。
+- `CPU`: free CPU / total CPU.
+- `GPU`: free GPU / total GPU by type, for example `h200 3/4`.
+- `MEM`: Slurm schedulable free memory / total memory.
 
-`--json` 中仍保留 `mem_free_os_mb`，它来自 `scontrol show node` 的 `FreeMem` 字段，是节点操作系统当前空闲内存，适合诊断实时内存压力；日常判断可调度资源主要看表格里的 `MEM`。
+JSON output still includes `mem_free_os_mb`, which comes from the `FreeMem` field in `scontrol show node`. That is the operating system's current free memory reported to Slurm and is useful for diagnosing real-time node memory pressure. For normal scheduling decisions, prefer the table's `MEM` column.
 
 ### jnodes
 
-显示所有节点资源概览，可按 partition、GPU 类型或状态过滤。
+Show a node resource overview. You can filter by partition, GPU type, or node state.
 
 ```bash
 jnodes
@@ -73,7 +73,7 @@ jnodes --states IDLE,MIXED
 
 ### jpart
 
-显示 partition 概览，对应 `sinfo` 的分区、状态、节点数量、GRES 和 nodelist。
+Show a partition overview based on `sinfo`.
 
 ```bash
 jpart
@@ -82,7 +82,7 @@ jpart -p gpu
 
 ### jwhy
 
-汇总当前 pending 作业的等待原因，适合快速判断是优先级、资源不足还是 dependency。
+Summarize pending job reasons. This is useful for quickly checking whether jobs are waiting on priority, resources, dependencies, or partition limits.
 
 ```bash
 jwhy
@@ -92,7 +92,7 @@ jwhy -p gpu
 
 ### jhist
 
-显示近期 `sacct` 历史记录。
+Show recent `sacct` history.
 
 ```bash
 jhist
@@ -102,7 +102,7 @@ jhist -u alice --json
 
 ### jslurm
 
-所有命令也可以通过一个总入口调用：
+All commands are also available through one entry point:
 
 ```bash
 jslurm queue
@@ -113,12 +113,12 @@ jslurm why
 jslurm hist
 ```
 
-## 说明
+## Notes
 
-- 所有命令默认只读，不会修改或取消作业。
-- `--json` 可用于脚本和 `jq`。
-- `--watch SEC` 会每隔指定秒数刷新一次。
-- 终端表格默认使用颜色；通过管道输出时会自动关闭，也可以手动加 `--no-color`。
-- 表格里的 start time 省略年份，例如 `05-16 14:32`；`--json` 仍保留 Slurm 原始时间。
-- `jqueue` 的 GPU 列来自 `squeue -O tres-alloc`，运行中显示已分配 TRES，等待中显示请求 TRES；如果集群只返回 `gres/gpu=1`，会先尝试从 job feature 识别型号，例如 `h200=1`。运行中的 job 如果 feature 里没有明确型号，会按需加载一次节点信息，从分配节点的 `Gres/CfgTRES/ActiveFeatures` 继续反推。
-- `javail` 的 GPU 数量主要来自 `scontrol show node -o` 中的 `CfgTRES` 和 `AllocTRES`；如果 GPU 分配信息缺失，会退回解析 `Gres` 和 `GresUsed`。
+- Commands are read-only by default. They do not cancel or modify jobs.
+- Use `--json` for scripts and `jq`.
+- Use `--watch SEC` to refresh at an interval.
+- Tables use color when stdout is a terminal. Piped output disables color automatically, and `--no-color` disables it explicitly.
+- Table start times omit the year, for example `05-16 14:32`; JSON keeps the original Slurm time string.
+- `jqueue` gets the GPU column from `squeue -O tres-alloc`. Running jobs show allocated TRES; pending jobs show requested TRES. If the cluster only returns `gres/gpu=1`, `jqueue` first tries to infer the model from job features, for example `h200=1`. For running jobs without an explicit feature model, it may load node information once and infer the model from allocated nodes' `Gres`, `CfgTRES`, or `ActiveFeatures`.
+- `javail` GPU counts mainly come from `CfgTRES` and `AllocTRES` in `scontrol show node -o`. If GPU allocation details are missing there, it falls back to parsing `Gres` and `GresUsed`.
