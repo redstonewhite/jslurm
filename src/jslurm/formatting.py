@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 import shutil
 import sys
+import textwrap
 from dataclasses import dataclass
 from typing import Iterable, Mapping, Sequence
 
@@ -24,6 +25,25 @@ def strip_ansi(value: str) -> str:
 
 def visible_len(value: str) -> int:
     return len(strip_ansi(value))
+
+
+def wrap_text(value: str, width: int | None = None) -> str:
+    if width is None:
+        width = shutil.get_terminal_size(fallback=(120, 24)).columns
+    if width <= 0:
+        return value
+    wrapped: list[str] = []
+    for line in value.splitlines() or [""]:
+        wrapped.extend(
+            textwrap.wrap(
+                line,
+                width=width,
+                break_long_words=True,
+                break_on_hyphens=False,
+            )
+            or [""]
+        )
+    return "\n".join(wrapped)
 
 
 def should_color(no_color: bool = False) -> bool:

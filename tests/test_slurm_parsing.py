@@ -2,6 +2,7 @@ import unittest
 from unittest import mock
 
 from jslurm.cli import filter_nodes, format_start_time, job_gpu_summary
+from jslurm.formatting import visible_len, wrap_text
 import jslurm.slurm as slurm
 from jslurm.slurm import (
     DELIM,
@@ -215,6 +216,15 @@ class SlurmParsingTests(unittest.TestCase):
         self.assertEqual(format_start_time("2026-05-16 14:32:09"), "05-16 14:32")
         self.assertEqual(format_start_time("2026-05-16"), "05-16")
         self.assertEqual(format_start_time("-"), "-")
+
+    def test_wrap_text_limits_visible_width(self):
+        message = (
+            "Hidden GPU nodes: 12 "
+            "(p001, p002, p003, p004, p005, p006, p007, p008, +4). "
+            "Use `javail --all` to show all."
+        )
+        wrapped = wrap_text(message, 36)
+        self.assertTrue(all(visible_len(line) <= 36 for line in wrapped.splitlines()))
 
 
 if __name__ == "__main__":

@@ -7,7 +7,7 @@ import sys
 import time
 from collections import defaultdict
 from dataclasses import asdict
-from typing import Any, Callable, Iterable
+from typing import Any, Callable, Iterable, Sequence
 
 from . import __version__
 from .formatting import (
@@ -20,6 +20,9 @@ from .formatting import (
     print_table,
     should_color,
     split_csv,
+    table,
+    visible_len,
+    wrap_text,
 )
 from .slurm import (
     HistoryJob,
@@ -322,6 +325,13 @@ def node_to_row(node: Node, *, color: bool) -> dict[str, str]:
     }
 
 
+def hidden_gpu_nodes_message(hidden: Sequence[Node]) -> str:
+    return (
+        f"Hidden GPU nodes: {len(hidden)} "
+        f"({join_short([node.name for node in hidden], 8)}). Use `javail --all` to show all."
+    )
+
+
 def filter_nodes(
     nodes: Iterable[Node],
     *,
@@ -401,30 +411,30 @@ def command_avail(args: argparse.Namespace) -> int:
         if not nodes:
             print("No free GPU resources match the filters.")
             if hidden:
-                print(
-                    f"Hidden GPU nodes: {len(hidden)} "
-                    f"({join_short([node.name for node in hidden], 8)}). Use `javail --all` to show all."
-                )
+                print(wrap_text(hidden_gpu_nodes_message(hidden)))
             return
         color = should_color(args.no_color)
         rows = [node_to_row(node, color=color) for node in nodes]
-        print_table(
+        columns = [
+            Column("name", "NODE", min_width=5, max_width=18),
+            Column("partition", "PART", min_width=5, max_width=18),
+            Column("cpu", "CPU", min_width=5, max_width=9, align="right"),
+            Column("gpu", "GPU", min_width=8, max_width=28),
+            Column("mem", "MEM", min_width=7, max_width=13, align="right"),
+            Column("state", "STATE", min_width=5, max_width=16),
+            Column("features", "FEATURES", min_width=5, max_width=26),
+        ]
+        table_text = table(
             rows,
-            [
-                Column("name", "NODE", min_width=5, max_width=18),
-                Column("partition", "PART", min_width=5, max_width=18),
-                Column("cpu", "CPU", min_width=5, max_width=9, align="right"),
-                Column("gpu", "GPU", min_width=8, max_width=28),
-                Column("mem", "MEM", min_width=7, max_width=13, align="right"),
-                Column("state", "STATE", min_width=5, max_width=16),
-                Column("features", "FEATURES", min_width=5, max_width=26),
-            ],
+            columns,
         )
+        print(table_text)
         if hidden:
+            table_width = max(visible_len(line) for line in table_text.splitlines())
+            message = wrap_text(hidden_gpu_nodes_message(hidden), table_width)
             print(
                 colorize(
-                    f"Hidden GPU nodes: {len(hidden)} "
-                    f"({join_short([node.name for node in hidden], 8)}). Use `javail --all` to show all.",
+                    message,
                     "gray",
                     color,
                 )
